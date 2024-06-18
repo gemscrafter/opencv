@@ -410,7 +410,7 @@ class Builder:
             shutil.rmtree(framework_dir)
         os.makedirs(framework_dir)
 
-        if self.dynamic:
+        if self.dynamic or builddirs[0].find("iphone") != -1 or builddirs[0].find("vision") != -1:
             dstdir = framework_dir
         else:
             dstdir = os.path.join(framework_dir, "Versions", "A")
@@ -429,6 +429,12 @@ class Builder:
                         file.write(body)
         if self.build_objc_wrapper:
             copy_tree(os.path.join(builddirs[0], "install", "lib", name + ".framework", "Headers"), os.path.join(dstdir, "Headers"))
+            module_header = os.path.join(dstdir, "Headers", name + "-Swift.h")
+            if os.path.isfile(module_header):
+                for d in builddirs[1:]:
+                    header_to_merge = os.path.join(d, "install", "lib", name + ".framework", "Headers", name + "-Swift.h")
+                    self.mergeModuleHeaders(module_header, header_to_merge)
+
             platform_name_map = {
                     "arm": "armv7-apple-ios",
                     "arm64": "arm64-apple-ios",
@@ -459,7 +465,7 @@ class Builder:
         execute(lipocmd)
 
         # dynamic framework has different structure, just copy the Plist directly
-        if self.dynamic:
+        if self.dynamic or builddirs[0].find("iphone") != -1 or builddirs[0].find("vision") != -1:
             resdir = dstdir
             shutil.copyfile(self.getInfoPlist(builddirs), os.path.join(resdir, "Info.plist"))
         else:
@@ -483,6 +489,24 @@ class Builder:
         # Copy Apple privacy manifest
         shutil.copyfile(os.path.join(CURRENT_FILE_DIR, "PrivacyInfo.xcprivacy"),
                         os.path.join(resdir, "PrivacyInfo.xcprivacy"))
+
+    def mergeModuleHeaders(self, merged_header, module_header):
+        print("Merging module headers:\n\t%s\n\t%s" % (merged_header, module_header))
+        with codecs.open(merged_header, "r", "utf-8") as file:
+            merged_lines = file.readlines()
+
+        for i in range(len(merged_lines)):
+            if merged_lines[i].find("#error unsupported Swift architecture") != -1:
+                merged_lines = merged_lines[:i-1]
+                break
+
+        with codecs.open(module_header, "r", "utf-8") as file:
+            module_lines = file.readlines()
+
+        merged_lines.extend(module_lines[1:])
+
+        with codecs.open(merged_header, "w", "utf-8") as file:
+            file.writelines(merged_lines)
 
     def copy_samples(self, outdir):
         return
